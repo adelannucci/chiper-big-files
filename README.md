@@ -7,4 +7,6 @@ project java for cipher files use AES/GCM
 
 ## How to use
 
-java -jar <passfree>
+for key derivation key need a passfree pass for string parameters
+
+eg: java -jar cipher-big-files.jar myPassfree
