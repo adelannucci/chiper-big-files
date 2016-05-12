@@ -38,8 +38,8 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 public class Main {
 
     public static final int KEY_SIZE = 128;
-    public static final int BUFFER_SIZE = 1024;
-    public static final int CIPHER_BUFFER_SIZE = 1040;
+    public static final int BUFFER_SIZE = 13107200;
+    public static final int CIPHER_BUFFER_SIZE = 13107216;
     
     
 
@@ -146,7 +146,7 @@ public class Main {
             fileInputStream = new BufferedInputStream(new FileInputStream(uri));
             FileOutputStream fileOutputStream = new FileOutputStream("file.enc");
 
-            byte[] buffer = new byte[BUFFER_SIZE*10];
+            byte[] buffer = new byte[BUFFER_SIZE];
             int bytesRead;
 
             while ((bytesRead = fileInputStream.read(buffer)) != -1) {
@@ -154,7 +154,7 @@ public class Main {
                 byte[] iv = secureRandonGen(IV_BYTES);
                 ivs.add(iv);
 
-                if (bytesRead != BUFFER_SIZE*10) {
+                if (bytesRead != BUFFER_SIZE) {
                     byte[] aux = new byte[bytesRead];
                     System.arraycopy(buffer, 0, aux, 0, bytesRead);
                     cipherText = encrypt(key, iv, aad, aux);
@@ -189,7 +189,7 @@ public class Main {
             try {
                 fileInputStream = new BufferedInputStream(new FileInputStream(uri));
                 FileOutputStream fileOutputStream = new FileOutputStream("dec.mkv");
-                byte[] buffer = new byte[10256];
+                byte[] buffer = new byte[CIPHER_BUFFER_SIZE];
                 byte[] clearText;
                 int bytesRead;
                 int acc = 0;
@@ -197,7 +197,7 @@ public class Main {
                 while ((bytesRead = fileInputStream.read(buffer)) != -1) {
                     byte[] iv = (byte[]) ivs.get(acc);
 
-                    if (bytesRead != 10256) {
+                    if (bytesRead != CIPHER_BUFFER_SIZE) {
                         byte[] aux = new byte[bytesRead];
                         System.arraycopy(buffer, 0, aux, 0, bytesRead);
                         clearText = decrypt(key, iv, aad, aux);
