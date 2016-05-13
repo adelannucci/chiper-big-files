@@ -14,9 +14,7 @@ import java.security.SecureRandom;
 import java.security.Security;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -39,14 +37,12 @@ public class Main {
 
     public static final int KEY_SIZE = 128;
     public static final int BUFFER_SIZE = 13107200;
-    public static final int CIPHER_BUFFER_SIZE = 13107216;
-    
-    
+    public static final int DATA_BUFFER_SIZE = 13107224;
 
     public static final int SALT_BYTES = 16; // equal 128 bits
     public static final int IV_BYTES = 12; // equal 96 bits
     public static final int TAG_BYTES = 12; // equal 96 bits
-    public static final int GCM_TAG_LENGTH = 128; // in bits
+    public static final int GCM_TAG_LENGTH = 96; // in bits
     public static final int KEY_GEN_ITERATIONS = 10000;
 
     private static byte[] decrypt(SecretKey key, byte[] iv, byte[] aad, byte[] data) {
@@ -135,24 +131,46 @@ public class Main {
         return null;
     }
 
-    private static void encFile(SecretKey key, byte[] aad) {
+ 
+    private static byte[] sectionOfEncryptedData(byte[] iv, byte[] data) {
+        byte[] aux = new byte[data.length + iv.length];
+        System.arraycopy(iv, 0, aux, 0, iv.length);
+        System.arraycopy(data, 0, aux, iv.length, data.length);
+        return aux;
+    }
+
+    private static Map sectionOfEncryptedData(byte[] data) {
+        Map<String, byte[]> map = new HashMap<String, byte[]>();
+        int size = data.length - IV_BYTES;
+
+        byte[] iv = new byte[IV_BYTES];
+        byte[] encrypted = new byte[size];
+
+        System.arraycopy(data, 0, iv, 0, IV_BYTES);
+        System.arraycopy(data, IV_BYTES, encrypted, 0, size);
+
+        map.put("iv", iv);
+        map.put("data", encrypted);
+
+        return map;
+    }
+
+    private static void encryptFile(SecretKey key, byte[] aad) {
         InputStream fileInputStream = null;
-        Cipher cipher;
-        Cipher decipher;
-        List<byte[]> ivs = new ArrayList();
+        FileOutputStream fileOutputStream = null;
 
         try {
             String uri = "got.mkv";
             fileInputStream = new BufferedInputStream(new FileInputStream(uri));
-            FileOutputStream fileOutputStream = new FileOutputStream("file.enc");
+            fileOutputStream = new FileOutputStream("file.enc");
 
             byte[] buffer = new byte[BUFFER_SIZE];
             int bytesRead;
 
             while ((bytesRead = fileInputStream.read(buffer)) != -1) {
                 byte[] cipherText;
+                byte[] data;
                 byte[] iv = secureRandonGen(IV_BYTES);
-                ivs.add(iv);
 
                 if (bytesRead != BUFFER_SIZE) {
                     byte[] aux = new byte[bytesRead];
@@ -162,55 +180,55 @@ public class Main {
                 } else {
                     cipherText = encrypt(key, iv, aad, buffer);
                 }
-                
-                fileOutputStream.write(cipherText, 0, cipherText.length);
+
+                data = sectionOfEncryptedData(iv, cipherText);
+                fileOutputStream.write(data, 0, data.length);
             }
-            
-            writeIVs(ivs);
         } catch (Exception ex) {
             Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
         } finally {
             try {
+                fileOutputStream.close();
                 fileInputStream.close();
             } catch (IOException ex) {
                 Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
-
     }
 
-    private static void decFile(SecretKey key, byte[] aad) {
+    private static void decryptFile(SecretKey key, byte[] aad) {
+        FileOutputStream fileOutputStream = null;
         InputStream fileInputStream = null;
-        Cipher cipher;
         String uri = "file.enc";
-        List<byte[]> ivs = readIVs();
 
         if (isExistFile(uri)) {
             try {
                 fileInputStream = new BufferedInputStream(new FileInputStream(uri));
-                FileOutputStream fileOutputStream = new FileOutputStream("dec.mkv");
-                byte[] buffer = new byte[CIPHER_BUFFER_SIZE];
+                fileOutputStream = new FileOutputStream("dec.mkv");
+                byte[] buffer = new byte[DATA_BUFFER_SIZE];
                 byte[] clearText;
                 int bytesRead;
-                int acc = 0;
                 
                 while ((bytesRead = fileInputStream.read(buffer)) != -1) {
-                    byte[] iv = (byte[]) ivs.get(acc);
-
-                    if (bytesRead != CIPHER_BUFFER_SIZE) {
+                    Map map;
+                    if (bytesRead != DATA_BUFFER_SIZE) {
                         byte[] aux = new byte[bytesRead];
                         System.arraycopy(buffer, 0, aux, 0, bytesRead);
-                        clearText = decrypt(key, iv, aad, aux);
+                        map = sectionOfEncryptedData(aux);
                     } else {
-                        clearText = decrypt(key, iv, aad, buffer);
+                        map = sectionOfEncryptedData(buffer);
                     }
-                    acc++;
+                    
+                    byte[] iv = (byte[]) map.get("iv");
+                    byte[] data = (byte[]) map.get("data");
+                    clearText = decrypt(key, iv, aad, data);
                     fileOutputStream.write(clearText, 0, clearText.length);
                 }
             } catch (Exception ex) {
                 Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
             } finally {
                 try {
+                    fileOutputStream.close();
                     fileInputStream.close();
                 } catch (IOException ex) {
                     Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
@@ -237,7 +255,7 @@ public class Main {
             }
         }
     }
-    
+
     private static Map readMetaFile() {
         InputStream fileInputStream = null;
         Map<String, byte[]> map = new HashMap<String, byte[]>();
@@ -253,7 +271,7 @@ public class Main {
             byte[] aad = new byte[12];
             byte[] salt = new byte[16];
             int bytesRead;
-            
+
             if ((bytesRead = fileInputStream.read(aad)) != -1) {
                 map.put("aad", aad);
             }
@@ -264,53 +282,6 @@ public class Main {
 
             fileInputStream.close();
             return map;
-        } catch (Exception ex) {
-            return null;
-        }
-    }
-    
-    private static void writeIVs(List<byte[]> ivs) {
-        FileOutputStream fileOutputStream = null;
-
-        try {
-            String uri = "ivs.meta";
-            fileOutputStream = new FileOutputStream(uri);
-            for(byte[] iv : ivs){
-                fileOutputStream.write(iv, 0, iv.length);
-            }
-        } catch (Exception ex) {
-            Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
-        } finally {
-            try {
-                fileOutputStream.close();
-            } catch (IOException ex) {
-                Logger.getLogger(Main.class.getName()).log(Level.SEVERE, null, ex);
-            }
-        }
-    }
-    
-    private static List<byte[]> readIVs() {
-        InputStream fileInputStream = null;
-        List<byte[]> ivs = new ArrayList<>();
-        String uri = "ivs.meta";
-
-        if (!isExistFile(uri)) {
-            return null;
-        }
-
-        try {
-            fileInputStream = new BufferedInputStream(new FileInputStream(uri));
-            byte[] iv = new byte[12];
-            int bytesRead;
-
-            while ((bytesRead = fileInputStream.read(iv)) != -1) {
-                byte[] aux = new byte[bytesRead];
-                System.arraycopy(iv, 0, aux, 0, bytesRead);
-                ivs.add(aux);
-            }
-            
-            fileInputStream.close();
-            return ivs;
         } catch (Exception ex) {
             return null;
         }
@@ -342,7 +313,7 @@ public class Main {
 
             secretKey = keyGen(args[0].toCharArray(), salt);
             writeMetaFile(aad, salt);
-            encFile(secretKey,aad);
+            encryptFile(secretKey, aad);
             System.out.println("end.");
         } else {
             System.out.println("dechipher ... ");
@@ -350,7 +321,7 @@ public class Main {
             salt = (byte[]) map.get("salt");
 
             secretKey = keyGen(args[0].toCharArray(), salt);
-            decFile(secretKey, aad);
+            decryptFile(secretKey, aad);
             System.out.println("end.");
         }
 
